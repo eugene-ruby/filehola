@@ -190,7 +190,7 @@ Open `http://127.0.0.1:58081/`. The optional UI serves the same YAML file and pr
 
 ## Development and Testing
 
-Go 1.24 or newer is required. See [CONTRIBUTING.md](CONTRIBUTING.md) for host-run setup, test fixtures, migrations, and pull requests. The main checks are:
+Go 1.25 or newer is required. See [CONTRIBUTING.md](CONTRIBUTING.md) for host-run setup, test fixtures, migrations, and pull requests. The main checks are:
 
 ```sh
 go test ./...

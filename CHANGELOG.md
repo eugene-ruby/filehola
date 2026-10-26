@@ -4,6 +4,9 @@ All notable changes to Filehola are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Use Go 1.25 for the service Docker build, matching the module requirement.
+
 ### Added
 - Go HTTP service for draft creation, revision-checked content updates, conditional publishing, and path resolution.
 - PostgreSQL metadata with embedded migrations and immutable S3-compatible content storage.

@@ -4,7 +4,7 @@ Thanks for helping improve Filehola. The project is a standalone file storage se
 
 ## Prerequisites
 
-- Go 1.24 or newer.
+- Go 1.25 or newer.
 - Docker and Docker Compose for PostgreSQL 17 and MinIO integration tests.
 - Available loopback ports `55432` (PostgreSQL), `59000` (MinIO), and `58080` (the Compose app). A host-run Go process defaults to port `8080`.
 
