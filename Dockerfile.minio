@@ -1,0 +1,15 @@
+# Reproducible local integration dependency, built from the upstream release source.
+FROM golang:1.24-alpine AS build
+RUN apk add --no-cache git
+RUN go install github.com/minio/minio@RELEASE.2025-04-22T22-12-26Z
+RUN go install github.com/minio/mc@RELEASE.2025-04-16T18-13-26Z
+
+FROM alpine:3.21 AS minio
+RUN apk add --no-cache ca-certificates
+COPY --from=build /go/bin/minio /usr/local/bin/minio
+ENTRYPOINT ["minio"]
+
+FROM alpine:3.21 AS mc
+RUN apk add --no-cache ca-certificates
+COPY --from=build /go/bin/mc /usr/local/bin/mc
+ENTRYPOINT ["mc"]

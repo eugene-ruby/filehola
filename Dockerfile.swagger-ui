@@ -1,0 +1,7 @@
+FROM docker.swagger.io/swaggerapi/swagger-ui:v5.34.0 AS swagger
+
+FROM nginx:1.27-alpine
+COPY --from=swagger /usr/share/nginx/html/ /usr/share/nginx/html/
+COPY api/openapi.yaml /usr/share/nginx/html/openapi.yaml
+COPY docs/swagger-ui/swagger-initializer.js /usr/share/nginx/html/swagger-initializer.js
+COPY docs/swagger-ui/default.conf /etc/nginx/conf.d/default.conf

@@ -1,0 +1,456 @@
+openapi: 3.1.0
+info:
+  title: Filehola HTTP API
+  version: 1.0.0
+  description: >-
+    MVP API for draft files, immutable object writes, and publication. A UUID
+    addresses only its current revision; historical revisions are not exposed.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+tags:
+  - name: Files
+  - name: Directories
+  - name: Health
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Check HTTP process availability
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: HTTP process is serving
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+              example: {status: ok}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/files:
+    post:
+      tags: [Files]
+      summary: Create a draft
+      description: >-
+        A source-free draft starts empty at revision 1. A sourced draft copies
+        current source content into a distinct S3 object and must use the same
+        exact-case path. MIME defaults to application/octet-stream.
+      operationId: createFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateFile'}
+            example:
+              directory: /docs
+              name: ADR-001.md
+              mime: text/plain
+      responses:
+        '201': {$ref: '#/components/responses/CreatedFile'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidInput'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    get:
+      tags: [Files]
+      summary: List published files or search by filename prefix
+      description: >-
+        Without name, returns direct children of directory (default /).
+        With name, searches globally by case-sensitive filename prefix; an
+        explicit directory or an empty name is invalid. Active published
+        files only. Ordered by created_at descending, then UUID descending.
+      operationId: listFiles
+      parameters:
+        - {$ref: '#/components/parameters/Directory'}
+        - name: name
+          in: query
+          description: Nonempty global filename prefix. Cannot be combined with directory.
+          schema: {type: string, minLength: 1}
+          example: ADR
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: Page of active published files
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FilePage'}
+              example:
+                items: []
+                has_more: false
+                next_cursor: null
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/InvalidQuery'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/files/resolve:
+    get:
+      tags: [Files]
+      summary: Resolve active file metadata by exact-case path
+      operationId: resolveFile
+      parameters:
+        - name: path
+          in: query
+          required: true
+          description: Absolute, exact-case file path.
+          schema: {type: string, pattern: '^/'}
+          example: /docs/ADR-001.md
+      responses:
+        '200': {$ref: '#/components/responses/FileMetadata'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/InvalidInput'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/files/{uuid}:
+    parameters:
+      - {$ref: '#/components/parameters/UUID'}
+    get:
+      tags: [Files]
+      summary: Get current metadata by UUID
+      description: Draft, published and superseded UUIDs remain addressable.
+      operationId: getFile
+      responses:
+        '200': {$ref: '#/components/responses/FileMetadata'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/InvalidInput'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    delete:
+      tags: [Files]
+      summary: Delete a draft
+      description: >-
+        The draft row is deleted atomically in PostgreSQL. Cleanup targets
+        only the exact S3 key returned by the committed deletion.
+      operationId: deleteDraft
+      responses:
+        '204': {description: Draft deleted; no response body}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidInput'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/files/{uuid}/content:
+    parameters:
+      - {$ref: '#/components/parameters/UUID'}
+    get:
+      tags: [Files]
+      summary: Download current binary content
+      operationId: getContent
+      responses:
+        '200':
+          description: Complete current content
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+            Content-Type:
+              description: Stored MIME type.
+              schema: {type: string}
+              example: text/plain
+            Content-Length:
+              description: Content size in bytes.
+              schema: {type: integer, format: int64, minimum: 0}
+          content:
+            '*/*':
+              schema: {type: string, format: binary}
+              example: Hello, Filehola!
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/InvalidInput'}
+        '500': {$ref: '#/components/responses/InternalError'}
+    put:
+      tags: [Files]
+      summary: Replace complete content
+      description: >-
+        Accepts at most 52,428,800 bytes. A strong quoted If-Match value
+        names the current revision of this UUID. Works for draft and active
+        published UUIDs; a superseded UUID is not writable. The request MIME
+        type is stored, or application/octet-stream when omitted.
+      operationId: putContent
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: Current UUID revision as one strong quoted positive decimal integer.
+          schema: {type: string, pattern: '^"[1-9][0-9]*"$'}
+          example: '"1"'
+      requestBody:
+        required: false
+        content:
+          '*/*':
+            schema: {type: string, format: binary, maxLength: 52428800}
+      responses:
+        '200': {$ref: '#/components/responses/FileMetadata'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '412': {$ref: '#/components/responses/RevisionMismatch'}
+        '413': {$ref: '#/components/responses/ContentTooLarge'}
+        '422': {$ref: '#/components/responses/InvalidInput'}
+        '428': {$ref: '#/components/responses/IfMatchRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/files/{uuid}/publish:
+    parameters:
+      - {$ref: '#/components/parameters/UUID'}
+    post:
+      tags: [Files]
+      summary: Publish a draft
+      description: >-
+        A source-free draft requires a free path. A sourced draft replaces
+        only the current publication at the same path and source revision.
+        The replaced UUID remains readable as superseded.
+      operationId: publishDraft
+      responses:
+        '200': {$ref: '#/components/responses/FileMetadata'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/InvalidInput'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /v1/directories:
+    get:
+      tags: [Directories]
+      summary: List immediate virtual subdirectories
+      description: Derived from current published paths; bytewise case-sensitive name order.
+      operationId: listDirectories
+      parameters:
+        - {$ref: '#/components/parameters/Directory'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: Page of virtual directories
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DirectoryPage'}
+              example:
+                items: [{name: docs, path: /docs}]
+                has_more: false
+                next_cursor: null
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '422': {$ref: '#/components/responses/InvalidQuery'}
+        '500': {$ref: '#/components/responses/InternalError'}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Single configured static token for all /v1 operations.
+  parameters:
+    UUID:
+      name: uuid
+      in: path
+      required: true
+      description: Canonical lowercase UUID.
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      example: 46c6b8ce-6c00-4bd7-8fbe-41e9ea94e015
+    Directory:
+      name: directory
+      in: query
+      description: >-
+        Absolute directory (default /). No trailing slash except root;
+        segments contain letters, digits, underscore, period or hyphen,
+        excluding . and ...
+      schema: {type: string, default: /}
+      example: /docs
+    Limit:
+      name: limit
+      in: query
+      description: Positive decimal page size; defaults to 50 and caps at 100.
+      schema: {type: integer, minimum: 1, default: 50}
+      example: 20
+    Cursor:
+      name: cursor
+      in: query
+      description: >-
+        Opaque cursor from next_cursor. Bound to the endpoint and selected
+        filter. Pagination is not a snapshot across concurrent changes.
+      schema: {type: string, minLength: 1}
+  headers:
+    ETag:
+      description: Strong quoted revision of the UUID returned by this response.
+      schema: {type: string, pattern: '^"[1-9][0-9]*"$'}
+      example: '"2"'
+  schemas:
+    Reference:
+      type: object
+      additionalProperties: false
+      required: [uuid, revision]
+      properties:
+        uuid: {$ref: '#/components/parameters/UUID/schema'}
+        revision: {type: integer, format: int64, minimum: 1}
+    FileMetadata:
+      type: object
+      additionalProperties: false
+      required: [uuid, revision, status, directory, name, path, mime, size, created_at, updated_at]
+      properties:
+        uuid: {$ref: '#/components/parameters/UUID/schema'}
+        revision: {type: integer, format: int64, minimum: 1}
+        status: {type: string, enum: [draft, published, superseded]}
+        directory: {type: string}
+        name: {type: string}
+        path: {type: string}
+        mime: {type: string}
+        size: {type: integer, format: int64, minimum: 0}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        source: {$ref: '#/components/schemas/Reference'}
+        superseded_by: {$ref: '#/components/schemas/Reference'}
+      example:
+        uuid: 46c6b8ce-6c00-4bd7-8fbe-41e9ea94e015
+        revision: 2
+        status: published
+        directory: /docs
+        name: ADR-001.md
+        path: /docs/ADR-001.md
+        mime: text/plain
+        size: 16
+        created_at: '2026-10-26T06:00:00Z'
+        updated_at: '2026-10-26T06:01:00Z'
+    CreateFile:
+      type: object
+      additionalProperties: false
+      required: [directory, name]
+      properties:
+        directory: {type: string}
+        name: {type: string, pattern: '^[A-Za-z0-9_.-]+$'}
+        mime: {type: string, default: application/octet-stream}
+        source: {$ref: '#/components/schemas/Reference'}
+    FilePage:
+      type: object
+      additionalProperties: false
+      required: [items, has_more, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/FileMetadata'}}
+        has_more: {type: boolean}
+        next_cursor:
+          type: [string, 'null']
+          description: Opaque cursor or null when has_more is false.
+    Directory:
+      type: object
+      additionalProperties: false
+      required: [name, path]
+      properties:
+        name: {type: string}
+        path: {type: string}
+    DirectoryPage:
+      type: object
+      additionalProperties: false
+      required: [items, has_more, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Directory'}}
+        has_more: {type: boolean}
+        next_cursor:
+          type: [string, 'null']
+          description: Opaque cursor or null when has_more is false.
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [unauthenticated, not_found, source_conflict, path_case_conflict, stale_source, not_draft, not_writable, revision_mismatch, content_too_large, invalid_input, source_path_mismatch, invalid_query, invalid_cursor, invalid_if_match, if_match_required, internal_error]
+        source: {$ref: '#/components/schemas/Reference'}
+        current: {$ref: '#/components/schemas/Reference'}
+  responses:
+    CreatedFile:
+      description: Draft metadata
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FileMetadata'}
+          example:
+            uuid: 46c6b8ce-6c00-4bd7-8fbe-41e9ea94e015
+            revision: 1
+            status: draft
+            directory: /docs
+            name: ADR-001.md
+            path: /docs/ADR-001.md
+            mime: text/plain
+            size: 0
+            created_at: '2026-10-26T06:00:00Z'
+            updated_at: '2026-10-26T06:00:00Z'
+    FileMetadata:
+      description: Current metadata and revision of this UUID
+      headers:
+        ETag: {$ref: '#/components/headers/ETag'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FileMetadata'}
+    Unauthorized:
+      description: Missing or invalid Bearer token
+      headers:
+        WWW-Authenticate:
+          schema: {type: string}
+          example: Bearer
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {error: unauthenticated}
+    NotFound:
+      description: UUID or exact-case active path not found
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {error: not_found}
+    Conflict:
+      description: Lifecycle or path conflict
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          examples:
+            staleSource:
+              value: {error: stale_source, source: {uuid: 46c6b8ce-6c00-4bd7-8fbe-41e9ea94e015, revision: 1}, current: {uuid: 46c6b8ce-6c00-4bd7-8fbe-41e9ea94e015, revision: 2}}
+            notDraft:
+              value: {error: not_draft}
+    RevisionMismatch:
+      description: Stale If-Match revision
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {error: revision_mismatch}
+    ContentTooLarge:
+      description: Content exceeds 50 MiB
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {error: content_too_large}
+    InvalidInput:
+      description: Invalid UUID, request body, path or If-Match
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          examples:
+            input:
+              value: {error: invalid_input}
+            ifMatch:
+              value: {error: invalid_if_match}
+    InvalidQuery:
+      description: Invalid query or cursor
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          examples:
+            query:
+              value: {error: invalid_query}
+            cursor:
+              value: {error: invalid_cursor}
+    IfMatchRequired:
+      description: If-Match header required
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {error: if_match_required}
+    InternalError:
+      description: Unexpected dependency failure; diagnostics are sanitized
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+          example: {error: internal_error}

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check gofmt
+        run: test -z "$(gofmt -l cmd internal integration tools)"
+      - name: Vet
+        run: go vet ./...
+      - name: Unit tests
+        run: go test ./...
+      - name: Race detector
+        run: go test -race ./...
+      - name: Validate OpenAPI and routes
+        run: make check-api
+      - name: Release policy tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: PostgreSQL and MinIO integration tests with race detector
+        run: make integration
+      - name: Container diagnostics on failure
+        if: failure()
+        run: docker compose ps
+      - name: Stop dependencies
+        if: always()
+        run: docker compose down
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Filehola image
+        run: docker compose build filehola
