@@ -97,7 +97,7 @@ The Compose credentials and token are local development defaults. Replace them b
 Release images will be published only to Docker Hub as `docker.io/eugene2ruby/filehola`. Each image supports `linux/amd64` and `linux/arm64`.
 
 ```sh
-docker pull "docker.io/eugene2ruby/filehola:latst"
+docker pull "docker.io/eugene2ruby/filehola:latest"
 ```
 
 For a Compose deployment, use the published image in place of a local `build` entry. Provide PostgreSQL, an existing S3 bucket, and all required [configuration](#configuration) values through your deployment's environment or secret manager:
@@ -105,7 +105,7 @@ For a Compose deployment, use the published image in place of a local `build` en
 ```yaml
 services:
   filehola:
-    image: docker.io/${DOCKERHUB_USERNAME:?required}/filehola:latest
+    image: docker.io/eugene2ruby/filehola:latest
     ports:
       - "127.0.0.1:58080:8080"
     environment:
