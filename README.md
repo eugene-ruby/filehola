@@ -94,12 +94,10 @@ The Compose credentials and token are local development defaults. Replace them b
 
 ## Docker Images
 
-Release images will be published only to Docker Hub as `docker.io/<dockerhub-username>/filehola`. Replace `<dockerhub-username>` with the namespace configured by the maintainer; no release image exists until the first release tag is published. Each image supports `linux/amd64` and `linux/arm64`.
-
-After a release, set `DOCKERHUB_USERNAME` to the published namespace in your shell and pull a fixed version with:
+Release images will be published only to Docker Hub as `docker.io/eugene2ruby/filehola`. Each image supports `linux/amd64` and `linux/arm64`.
 
 ```sh
-docker pull "docker.io/${DOCKERHUB_USERNAME:?set Docker Hub namespace}/filehola:0.1.0"
+docker pull "docker.io/eugene2ruby/filehola:latst"
 ```
 
 For a Compose deployment, use the published image in place of a local `build` entry. Provide PostgreSQL, an existing S3 bucket, and all required [configuration](#configuration) values through your deployment's environment or secret manager:
@@ -107,7 +105,7 @@ For a Compose deployment, use the published image in place of a local `build` en
 ```yaml
 services:
   filehola:
-    image: docker.io/${DOCKERHUB_USERNAME:?required}/filehola:0.1.0
+    image: docker.io/${DOCKERHUB_USERNAME:?required}/filehola:latest
     ports:
       - "127.0.0.1:58080:8080"
     environment:
@@ -192,7 +190,7 @@ Open `http://127.0.0.1:58081/`. The optional UI serves the same YAML file and pr
 
 ## Development and Testing
 
-Go 1.24 or newer is required. See [CONTRIBUTING.md](CONTRIBUTING.md) for host-run setup, test fixtures, migrations, and pull requests. The main checks are:
+Go 1.25 or newer is required. See [CONTRIBUTING.md](CONTRIBUTING.md) for host-run setup, test fixtures, migrations, and pull requests. The main checks are:
 
 ```sh
 go test ./...
