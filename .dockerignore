@@ -1,0 +1,11 @@
+.git
+.github
+.agents
+.env
+.env.*
+.DS_Store
+.idea
+AGENTS.md
+bin
+tmp
+scripts

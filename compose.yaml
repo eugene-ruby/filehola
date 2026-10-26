@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: filehola
+      POSTGRES_USER: filehola
+      POSTGRES_PASSWORD: filehola
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filehola -d filehola"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  minio:
+    build:
+      context: .
+      dockerfile: Dockerfile.minio
+      target: minio
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: filehola
+      MINIO_ROOT_PASSWORD: filehola-local-secret
+    ports:
+      - "127.0.0.1:59000:9000"
+    volumes:
+      - minio-data:/data
+  bucket:
+    build:
+      context: .
+      dockerfile: Dockerfile.minio
+      target: mc
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: /bin/sh
+    command:
+      - -ec
+      - |
+        until mc alias set local http://minio:9000 filehola filehola-local-secret >/dev/null 2>&1; do sleep 1; done
+        mc mb --ignore-existing local/filehola
+  filehola:
+    build: .
+    environment:
+      FILEHOLA_DATABASE_URL: ${FILEHOLA_DATABASE_URL:-postgres://filehola:filehola@postgres:5432/filehola?sslmode=disable}
+      FILEHOLA_S3_ENDPOINT: ${FILEHOLA_S3_ENDPOINT:-http://minio:9000}
+      FILEHOLA_S3_REGION: ${FILEHOLA_S3_REGION:-us-east-1}
+      FILEHOLA_S3_BUCKET: ${FILEHOLA_S3_BUCKET:-filehola}
+      FILEHOLA_S3_ACCESS_KEY_ID: ${FILEHOLA_S3_ACCESS_KEY_ID:-filehola}
+      FILEHOLA_S3_SECRET_ACCESS_KEY: ${FILEHOLA_S3_SECRET_ACCESS_KEY:-filehola-local-secret}
+      FILEHOLA_ACCESS_TOKEN: ${FILEHOLA_ACCESS_TOKEN:-local-development-token}
+      FILEHOLA_LISTEN_ADDR: ${FILEHOLA_LISTEN_ADDR:-:8080}
+    ports:
+      - "127.0.0.1:58080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bucket:
+        condition: service_completed_successfully
+  swagger-ui:
+    profiles: [docs]
+    build:
+      context: .
+      dockerfile: Dockerfile.swagger-ui
+    ports:
+      - "127.0.0.1:58081:8080"
+    depends_on:
+      - filehola
+volumes:
+  postgres-data:
+  minio-data:

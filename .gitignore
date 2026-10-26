@@ -1,0 +1,12 @@
+/AGENTS.md
+/.agents/
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+__pycache__/
+*.pyc
+/bin/
+/tmp/
+/coverage.out
